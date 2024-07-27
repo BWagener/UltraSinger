@@ -1,5 +1,5 @@
 """Midi creator module"""
-
+import copy
 import math
 import os
 from collections import Counter
@@ -18,6 +18,8 @@ from modules.Ultrastar.ultrastar_txt import UltrastarTxtValue
 from modules.Pitcher.pitched_data import PitchedData
 from modules.Pitcher.pitched_data_helper import get_frequencies_with_high_confidence
 
+SYLLABLE_SEGMENT_SIZE = 0.1
+SYLLABLE_SEGMENT_MAX_GAP_FOR_MERGE = 0.1
 
 def create_midi_instrument(midi_segments: list[MidiSegment]) -> object:
     """Converts an Ultrastar data to a midi instrument"""
@@ -124,19 +126,23 @@ def create_midi_note_from_pitched_data(start_time: float, end_time: float, pitch
     return MidiSegment(note, start_time, end_time, word)
 
 
-def create_midi_segments_from_transcribed_data(transcribed_data: list[TranscribedData], pitched_data: PitchedData) -> list[MidiSegment]:
+def create_midi_segments_from_transcribed_data(transcribed_data: list[TranscribedData], pitched_data: PitchedData) -> tuple[list[MidiSegment], list[TranscribedData]]:
     start_times = []
     end_times = []
     words = []
 
     if transcribed_data:
-        for i, midi_segment in enumerate(transcribed_data):
+        split_transcribed_data = split_syllables_into_segments(transcribed_data)
+
+        for i, midi_segment in enumerate(split_transcribed_data):
             start_times.append(midi_segment.start)
             end_times.append(midi_segment.end)
             words.append(midi_segment.word)
         midi_segments = create_midi_notes_from_pitched_data(start_times, end_times, words,
                                                             pitched_data)
-        return midi_segments
+
+        merged_midi_segments, merged_transcribed_data = merge_syllable_segments(midi_segments, split_transcribed_data)
+        return merged_midi_segments, merged_transcribed_data
 
 
 def create_repitched_midi_segments_from_ultrastar_txt(pitched_data: PitchedData, ultrastar_txt: UltrastarTxtValue) -> list[MidiSegment]:
@@ -167,3 +173,77 @@ def create_midi_file(
 
     midi_output = os.path.join(song_output, f"{basename_without_ext}.mid")
     __create_midi(voice_instrument, real_bpm, midi_output, midi_segments)
+
+
+def split_syllables_into_segments(
+        transcribed_data: list[TranscribedData],
+) -> list[TranscribedData]:
+    """Split every syllable into sub-segments"""
+    segment_size_decimal_points = len(str(SYLLABLE_SEGMENT_SIZE).split(".")[1])
+    new_data = []
+
+    for i, data in enumerate(transcribed_data):
+        duration = data.end - data.start
+        if duration <= SYLLABLE_SEGMENT_SIZE:
+            new_data.append(data)
+            continue
+
+        has_space = str(data.word).endswith(" ")
+        first_segment = copy.deepcopy(data)
+        filler_words_start = data.start + SYLLABLE_SEGMENT_SIZE
+        remainder = data.end - filler_words_start
+        first_segment.end = filler_words_start
+        if has_space:
+            first_segment.word = first_segment.word[:-1]
+
+        new_data.append(first_segment)
+
+        full_segments, partial_segment = divmod(remainder, SYLLABLE_SEGMENT_SIZE)
+
+        if full_segments >= 1:
+            for i in range(int(full_segments)):
+                segment = TranscribedData()
+                segment.word = "~"
+                segment.start = filler_words_start + round(
+                    i * SYLLABLE_SEGMENT_SIZE, segment_size_decimal_points
+                )
+                segment.end = segment.start + SYLLABLE_SEGMENT_SIZE
+                new_data.append(segment)
+
+        if partial_segment >= 0.01:
+            segment = TranscribedData()
+            segment.word = "~"
+            segment.start = filler_words_start + round(
+                full_segments * SYLLABLE_SEGMENT_SIZE, segment_size_decimal_points
+            )
+            segment.end = segment.start + partial_segment
+            new_data.append(segment)
+
+        if has_space:
+            new_data[-1].word += " "
+    return new_data
+
+
+def merge_syllable_segments(
+        midi_segments: list[MidiSegment], transcribed_data: list[TranscribedData]
+) -> tuple[list[MidiSegment], list[TranscribedData]]:
+    """Merge sub-segments of a syllable where the pitch is the same"""
+    new_data = []
+    new_midi_notes = []
+
+    previous_data = None
+
+    for i, data in enumerate(transcribed_data):
+        if (
+                str(data.word).startswith("~")
+                and previous_data is not None
+                and midi_segments[i].note == midi_segments[i - 1].note
+                and data.start - previous_data.end <= SYLLABLE_SEGMENT_MAX_GAP_FOR_MERGE
+        ):
+            new_data[-1].end = data.end
+            new_midi_notes[-1].end = data.end
+        else:
+            new_data.append(data)
+            new_midi_notes.append(midi_segments[i])
+        previous_data = data
+    return new_midi_notes, new_data

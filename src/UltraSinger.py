@@ -154,8 +154,9 @@ def run() -> tuple[str, Score, Score]:
 
     # Create Midi_Segments
     if not settings.ignore_audio:
-        process_data.midi_segments = create_midi_segments_from_transcribed_data(process_data.transcribed_data,
-                                                                                process_data.pitched_data)
+        process_data.midi_segments, process_data.transcribed_data = create_midi_segments_from_transcribed_data(
+            process_data.transcribed_data,
+            process_data.pitched_data)
     else:
         process_data.midi_segments = create_repitched_midi_segments_from_ultrastar_txt(process_data.pitched_data,
                                                                                        process_data.parsed_file)
