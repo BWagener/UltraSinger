@@ -277,7 +277,6 @@ TensorFlow dropped GPU support for Windows for versions >2.10 as you can see in 
 For now UltraSinger runs the latest version available that still supports GPUs on windows.
 
 For running later versions of TensorFlow on windows while still taking advantage of GPU support the suggested solution is to [run UltraSinger in a container](container/README.md).
-
 #### Crashes due to low VRAM
 
 If something crashes because of low VRAM then use a smaller model.
@@ -285,6 +284,6 @@ Whisper needs more than 8GB VRAM in the `large` model!
 
 You can also force cpu usage with the extra option `--force_cpu`.
 
-### Containerized (Docker or Podman)
+#### Containerized (Docker or Podman)
 
 See [container/README.md](container/README.md)
